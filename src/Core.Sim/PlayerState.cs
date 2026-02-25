@@ -48,7 +48,13 @@ public struct PlayerState
 
     /// <summary>
     /// Frames remaining in the active hitbox window of an ongoing attack.
-    /// Placeholder for SimStep logic; 0 = no active hitbox.
+    /// 0 = no active hitbox.
     /// </summary>
-    public byte AttackActiveFrames;
+    public int AttackActiveFrames;
+
+    /// <summary>
+    /// Set to 1 when this attack has already landed a hit; prevents multi-hit within
+    /// a single attack window. Reset to 0 when a new attack starts.
+    /// </summary>
+    public byte AttackHasHit;
 }

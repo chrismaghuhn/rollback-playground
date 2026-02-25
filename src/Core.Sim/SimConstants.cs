@@ -52,11 +52,56 @@ public static class SimConstants
     /// <summary>Ceiling. 12 world units.</summary>
     public const int MaxY = 12_000;
 
+    // ── Player geometry (in fixed-point units) ────────────────────────────────
+
+    /// <summary>Width of the player's hurtbox / bounding box. 0.6 world units.</summary>
+    public const int PlayerWidth  = 600;
+
+    /// <summary>Height of the player's hurtbox / bounding box. 0.9 world units.</summary>
+    public const int PlayerHeight = 900;
+
+    // ── Movement physics ─────────────────────────────────────────────────────
+
+    /// <summary>Horizontal move distance per tick when left/right is held. 0.3 wu/tick.</summary>
+    public const int MoveSpeedPerTick = 300;
+
+    /// <summary>
+    /// Vertical acceleration applied every tick (always negative — pulls down).
+    /// −0.04 world units per tick².
+    /// </summary>
+    public const int GravityPerTick = -40;
+
+    /// <summary>Upward velocity assigned on the first tick of a jump. 0.5 wu/tick.</summary>
+    public const int JumpVelocityPerTick = 500;
+
+    // ── Combat ────────────────────────────────────────────────────────────────
+
+    /// <summary>Width of the attack hitbox. 0.7 world units.</summary>
+    public const int AttackHitboxWidth  = 700;
+
+    /// <summary>Height of the attack hitbox. 0.7 world units.</summary>
+    public const int AttackHitboxHeight = 700;
+
+    /// <summary>HP removed from the defender on a successful hit.</summary>
+    public const int AttackDamage = 25;
+
+    /// <summary>Frames the defender is locked in hitstun after being hit.</summary>
+    public const int HitstunFrames = 20;
+
+    /// <summary>
+    /// Frames the attack hitbox is active (can register a hit) after the attack begins.
+    /// </summary>
+    public const int AttackActiveFrames = 5;
+
+    /// <summary>
+    /// Frames the attacker must wait (after starting an attack) before attacking again.
+    /// Must be ≥ AttackActiveFrames so the window closes before the cooldown expires.
+    /// </summary>
+    public const int AttackCooldownFrames = 30;   // 0.5 s at 60 fps
+
     // ── Player defaults ───────────────────────────────────────────────────────
 
-    public const int DefaultHp                   = 100;
-    public const int DefaultAttackCooldownFrames  = 30;   // 0.5 s at 60 fps
-    public const byte DefaultAttackActiveFrames   = 5;    // active hitbox window
+    public const int DefaultHp = 100;
 
     // ── Start positions (symmetric around centre X = 10 000) ─────────────────
 
