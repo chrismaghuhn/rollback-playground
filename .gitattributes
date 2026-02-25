@@ -1,0 +1,17 @@
+# Normalize line endings for all text files Git considers text.
+* text=auto eol=lf
+
+# Explicitly declare binary files.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.dll binary
+*.exe binary
+*.pdb binary

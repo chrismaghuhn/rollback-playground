@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- Enforce nullability, latest C# features, and zero-warning policy across all projects. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Reproducible builds: embed source info, deterministic output. -->
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>
