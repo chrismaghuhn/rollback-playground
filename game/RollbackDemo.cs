@@ -127,8 +127,22 @@ public partial class RollbackDemo : Node2D
 
     public override void _PhysicsProcess(double delta)
     {
-        // In LAN mode, do not advance the simulation until we are Connected.
-        // Prediction-debt would accumulate while waiting; gating here prevents it.
+        // ── LAN: poll socket every tick regardless of _simulationRunning ──────
+        // This covers handshake traffic (Hosting/Joining) and gameplay (Connected).
+        if (_mode == DemoMode.Lan && _udpSocket is not null)
+        {
+            ReceiveAll();
+
+            // Joining: send HELLO every 30 frames (= 0.5 s at 60 Hz) until ACK arrives
+            if (_lanState == LanState.Joining)
+            {
+                if (_helloSendTimer % 30 == 0)
+                    _udpSocket.Send(_helloBytes, _helloBytes.Length, _remoteEp);
+                _helloSendTimer++;
+            }
+        }
+
+        // ── Physics gate: halt engine until Connected (or always run in Offline) ──
         if (!_simulationRunning)
         {
             UpdateDebugLabel();
@@ -138,12 +152,25 @@ public partial class RollbackDemo : Node2D
 
         uint f = _engine.CurrentFrame;
 
-        FrameInput p1 = ReadP1Input();   // 1. Poll local input
-        EnqueueP2(f);                    // 2. Generate + schedule P2's real input
-        DeliverDue(f);                   // 3. Deliver any inputs due this frame (may rollback)
-        _engine.Tick(p1);               // 4. Advance sim
-        UpdateDebugLabel();             // 5. Refresh HUD text
-        QueueRedraw();                  // 6. Request _Draw
+        if (_mode == DemoMode.Lan)
+        {
+            // LAN Connected path — Task 3 will complete this branch
+            FrameInput localInput = ReadP1Input(); // same keys for P1 or P2 role
+            _localInputRing[f & 255] = localInput;
+            _engine.Tick(localInput);
+            // SendInputPacket() — added in Task 3
+        }
+        else
+        {
+            // Offline path: scripted P2 with simulated lag (unchanged)
+            FrameInput p1 = ReadP1Input();
+            EnqueueP2(f);
+            DeliverDue(f);
+            _engine.Tick(p1);
+        }
+
+        UpdateDebugLabel();
+        QueueRedraw();
     }
 
     public override void _Draw()
@@ -475,6 +502,115 @@ public partial class RollbackDemo : Node2D
         _remoteEp               = null;
         _helloSendTimer         = 0;
         _latestRemoteFrameConfirmed = uint.MaxValue;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="raw"/> contains exactly the bytes of
+    /// <paramref name="expected"/> (ASCII literal, e.g. <c>"HELLO"u8</c>).
+    /// </summary>
+    private static bool IsMessage(byte[] raw, System.ReadOnlySpan<byte> expected) =>
+        raw.Length == expected.Length && raw.AsSpan().SequenceEqual(expected);
+
+    /// <summary>
+    /// Moves to <see cref="LanState.Connected"/> from either Hosting or Joining.
+    /// Re-creates the engine from Frame 0 with a 512-frame history buffer so that
+    /// real network latency (up to ~200 ms at 60 fps ≈ 12 frames) has headroom.
+    /// </summary>
+    private void TransitionToConnected()
+    {
+        _lanState                   = LanState.Connected;
+        _simulationRunning          = true;
+        // Deep history for LAN: 60 fps × 200 ms RTT ≈ 12 frames; 512 gives ×40 headroom.
+        _engine                     = new RollbackEngine(SimState.CreateInitial(Seed), 512, _localPlayer);
+        _latestRemoteFrame          = uint.MaxValue;
+        _latestRemoteFrameConfirmed = uint.MaxValue;
+        _lanStatusLbl.Text          = "State: CONNECTED";
+        // Host/Join stay disabled; Disconnect stays enabled (set in OnHost/OnJoin already)
+        UpdateDebugLabel();
+    }
+
+    /// <summary>
+    /// Drains the UDP socket without blocking.
+    /// Routes each datagram to handshake or gameplay processing.
+    /// </summary>
+    private void ReceiveAll()
+    {
+        if (_udpSocket is null) return;
+
+        // UdpClient.Available reports bytes ready to read; stops us blocking on Receive().
+        var anyEp = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+        while (_udpSocket.Available > 0)
+        {
+            System.Net.IPEndPoint sender = anyEp;
+            byte[] raw = _udpSocket.Receive(ref sender);
+            ProcessPacket(raw);
+        }
+    }
+
+    /// <summary>
+    /// Routes a received datagram:
+    /// – ASCII handshake messages during Hosting/Joining states.
+    /// – RBN1 gameplay packets during Connected state.
+    /// Unrecognised packets are silently dropped.
+    /// </summary>
+    private void ProcessPacket(byte[] raw)
+    {
+        // ── Handshake ─────────────────────────────────────────────────────────
+
+        // Host receives HELLO from Joiner → reply ACK
+        if (_lanState == LanState.Hosting && IsMessage(raw, "HELLO"u8))
+        {
+            _udpSocket!.Send(_ackBytes, _ackBytes.Length, _remoteEp);
+            return;
+        }
+
+        // Joiner receives ACK from Host → reply START + go Connected
+        if (_lanState == LanState.Joining && IsMessage(raw, "ACK"u8))
+        {
+            _udpSocket!.Send(_startBytes, _startBytes.Length, _remoteEp);
+            TransitionToConnected();
+            return;
+        }
+
+        // Host receives START from Joiner → go Connected
+        if (_lanState == LanState.Hosting && IsMessage(raw, "START"u8))
+        {
+            TransitionToConnected();
+            return;
+        }
+
+        // ── Gameplay packets ──────────────────────────────────────────────────
+        // (populated in Task 3 — packets received before that task are silently ignored)
+        if (_lanState == LanState.Connected)
+        {
+            ProcessGameplayPacket(raw);
+        }
+    }
+
+    /// <summary>
+    /// Decodes an RBN1 gameplay packet and feeds inputs to the engine.
+    /// Silently ignores malformed packets.
+    /// </summary>
+    private void ProcessGameplayPacket(byte[] raw)
+    {
+        // Zero-alloc decode into stack-allocated span
+        var dst = new FrameInput[PacketCodec.MaxInputsPerPacket];
+        if (!PacketCodec.TryDecodeInto(raw.AsSpan(), dst.AsSpan(), out var header, out int count))
+            return; // malformed — drop
+
+        for (int i = 0; i < count; i++)
+            _engine.SetRemoteInput(header.StartFrame + (uint)i, dst[i]);
+
+        // Track highest remote frame received (for PRED/CONF display)
+        uint highestReceived = header.StartFrame + (uint)count - 1u;
+        _latestRemoteFrame = _latestRemoteFrame == uint.MaxValue
+            ? highestReceived
+            : Math.Max(_latestRemoteFrame, highestReceived);
+
+        // Track what remote has confirmed from us (for AckFrame in outgoing packets)
+        _latestRemoteFrameConfirmed = _latestRemoteFrameConfirmed == uint.MaxValue
+            ? header.AckFrame
+            : Math.Max(_latestRemoteFrameConfirmed, header.AckFrame);
     }
 
     private void UpdateDebugLabel()
