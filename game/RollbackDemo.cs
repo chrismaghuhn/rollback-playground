@@ -50,6 +50,7 @@ public partial class RollbackDemo : Node2D
 
     public override void _Ready()
     {
+        // Viewport size (1280×600) is locked in project.godot [display] section.
         _engine = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap);
         BuildUi();
     }
@@ -84,6 +85,8 @@ public partial class RollbackDemo : Node2D
     // ─── Lag simulation + delivery ───────────────────────────────────────────
 
     private readonly Queue<(uint deliveryAt, uint simFrame, FrameInput input)> _lagBuffer = new();
+    // Written from the UI thread (ValueChanged); read from the physics thread (_PhysicsProcess).
+    // Safe only with Godot's single-threaded physics (the default).
     private int _delayFrames = 0;
 
     /// <summary>
@@ -124,6 +127,9 @@ public partial class RollbackDemo : Node2D
         float left   = MarginX;
         float right  = MarginX + ArenaPxW;
         float bottom = ViewportH;
+
+        // Arena background
+        DrawRect(new Rect2(MarginX, 0f, ArenaPxW, ViewportH), ColArena);
 
         DrawLine(new Vector2(left, bottom),  new Vector2(right, bottom), Colors.White,   2f); // ground
         DrawLine(new Vector2(left, 0f),      new Vector2(left, bottom),  Colors.DimGray, 2f); // left wall
