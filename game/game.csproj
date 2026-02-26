@@ -1,0 +1,10 @@
+<Project Sdk="Godot.NET.Sdk/4.6.1">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/Core.Sim/Core.Sim.csproj" />
+    <ProjectReference Include="../src/Core.Rollback/Core.Rollback.csproj" />
+  </ItemGroup>
+</Project>
