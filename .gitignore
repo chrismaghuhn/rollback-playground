@@ -32,3 +32,4 @@ game/export_credentials
 .DS_Store
 Thumbs.db
 desktop.ini
+.claude/

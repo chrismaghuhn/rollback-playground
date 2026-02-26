@@ -11,6 +11,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [v0.2] — 2026-02-26
+
+### Added
+- Multi-target `net8.0;net10.0` for `Core.Sim`, `Core.Rollback`, `Core.Replay`
+  (Godot 4 compatibility — Godot requires `net8.0`).
+- **Godot 4.6.1 offline rollback demo** (`game/`)
+  - Single-script `Node2D` — `RollbackDemo.cs`, six labelled sections.
+  - P1 keyboard: A / D / Space / J (Left / Right / Jump / Attack).
+  - P2 deterministic 60-frame script: Right 0–29 → Left 30–44 → Jump 45–59.
+  - Lag slider 0–10 frames (simulates network delay, triggers visible rollbacks).
+  - Debug overlay: Frame, LatestRemote, Remote (PRED/CONF), RollbackCount,
+    MaxRollback, FramesRolled, DelayFrames.
+  - F1 toggles debug overlay; F2 toggles full HUD (overlay + slider).
+  - Dark arena background, HP bars, facing indicator strips.
+
+---
+
 ## [v0.1-mvp] — 2026-02-25
 
 First complete MVP milestone. All Core.Sim, Core.Rollback, and Core.Replay
@@ -77,5 +94,6 @@ libraries are implemented and covered by automated tests (68 tests, 0 warnings).
 
 ---
 
-[Unreleased]: https://github.com/example/rollback-playground/compare/v0.1-mvp...HEAD
+[Unreleased]: https://github.com/example/rollback-playground/compare/v0.2...HEAD
+[v0.2]:       https://github.com/example/rollback-playground/compare/v0.1-mvp...v0.2
 [v0.1-mvp]:   https://github.com/example/rollback-playground/releases/tag/v0.1-mvp
