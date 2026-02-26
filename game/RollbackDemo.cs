@@ -42,6 +42,14 @@ public partial class RollbackDemo : Node2D
     private static readonly Color ColHpFill = new(0.20f, 0.80f, 0.20f);
     private static readonly Color ColHpBg   = new(0.50f, 0.10f, 0.10f);
 
+    // ─── Mode / connection state ──────────────────────────────────────────────
+
+    /// <summary>Top-level demo mode.</summary>
+    private enum DemoMode { Offline, Lan }
+
+    /// <summary>LAN connection lifecycle state.</summary>
+    private enum LanState { Disconnected, Hosting, Joining, Connected }
+
     // ─── Godot lifecycle ─────────────────────────────────────────────────────
 
     private RollbackEngine _engine    = null!;
@@ -49,15 +57,38 @@ public partial class RollbackDemo : Node2D
     private Label          _debugLbl  = null!;
     private Label          _lagLbl    = null!;
 
+    // ─── Mode + LAN connection state ─────────────────────────────────────────
+
+    private DemoMode    _mode              = DemoMode.Offline;
+    private LanState    _lanState          = LanState.Disconnected;
+    private string      _remoteIp          = "127.0.0.1";
+    private int         _port              = 7777;
+    private LocalPlayer _localPlayer       = LocalPlayer.P1;
+    /// <summary>
+    /// True when the simulation should advance each physics tick.
+    /// Always true in Offline mode; true in LAN mode only when Connected.
+    /// The physics gate in _PhysicsProcess reads this flag.
+    /// </summary>
+    private bool        _simulationRunning = true;
+
     public override void _Ready()
     {
         // Viewport size (1280×600) is locked in project.godot [display] section.
-        _engine = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap);
+        _engine = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         BuildUi();
     }
 
     public override void _PhysicsProcess(double delta)
     {
+        // In LAN mode, do not advance the simulation until we are Connected.
+        // Prediction-debt would accumulate while waiting; gating here prevents it.
+        if (!_simulationRunning)
+        {
+            UpdateDebugLabel();
+            QueueRedraw();
+            return;
+        }
+
         uint f = _engine.CurrentFrame;
 
         FrameInput p1 = ReadP1Input();   // 1. Poll local input
@@ -214,9 +245,6 @@ public partial class RollbackDemo : Node2D
 
     private void UpdateDebugLabel()
     {
-        // Determine PRED/CONF for the frame that was just simulated.
-        // Tick() has already incremented CurrentFrame, so the frame we care about
-        // is CurrentFrame - 1.  Making this explicit prevents off-by-one "fixes".
         uint justSimulated = _engine.CurrentFrame == 0u ? 0u : _engine.CurrentFrame - 1u;
         bool confirmedForJustSimulated =
             _latestRemoteFrame != uint.MaxValue &&
@@ -228,13 +256,21 @@ public partial class RollbackDemo : Node2D
                                ? "    ---"
                                : $"{_latestRemoteFrame,7}";
 
+        string lanLines = _mode == DemoMode.Lan
+            ? $"LAN State:     {_lanState}\n"
+            + (_lanState != LanState.Connected ? "               ⏳ Waiting for peer…\n" : "")
+            : "";
+
         _debugLbl.Text =
-            $"Frame:          {_engine.CurrentFrame,7}\n"           +
-            $"LatestRemote:  {latestRemoteTxt}\n"                   +
-            $"Remote:        {remoteStatus,7}\n"                    +
-            $"RollbackCount: {_engine.RollbackCount,7}\n"           +
-            $"MaxRollback:   {_engine.MaxRollbackDepth,7} frames\n" +
-            $"FramesRolled:  {_engine.RollbackFramesTotal,7}\n"     +
+            $"Mode:            {(_mode == DemoMode.Offline ? "Offline" : "LAN")}\n"  +
+            $"LocalPlayer:     {(_localPlayer == LocalPlayer.P1 ? "P1" : "P2")}\n"   +
+            lanLines                                                                   +
+            $"Frame:          {_engine.CurrentFrame,7}\n"                             +
+            $"LatestRemote:  {latestRemoteTxt}\n"                                     +
+            $"Remote:        {remoteStatus,7}\n"                                      +
+            $"RollbackCount: {_engine.RollbackCount,7}\n"                             +
+            $"MaxRollback:   {_engine.MaxRollbackDepth,7} frames\n"                   +
+            $"FramesRolled:  {_engine.RollbackFramesTotal,7}\n"                       +
             $"DelayFrames:   {_delayFrames,7}";
     }
 
