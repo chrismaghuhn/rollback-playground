@@ -95,6 +95,13 @@ public partial class RollbackDemo : Node2D
     private readonly byte[]                _sendBuf                = new byte[PacketCodec.MaxPacketSize];
 
     /// <summary>
+    /// Pre-allocated input array for <see cref="SendInputPacket"/> — avoids per-tick
+    /// heap allocation. Passed to <see cref="InputPacket"/> with an explicit count;
+    /// only elements [0..count-1] are written and read each tick.
+    /// </summary>
+    private readonly FrameInput[]          _inputsScratch          = new FrameInput[PacketCodec.MaxInputsPerPacket];
+
+    /// <summary>
     /// 256-slot ring buffer of local inputs indexed by <c>frame &amp; 255</c>.
     /// Populated each tick before Tick(); used to build redundant outgoing packets.
     /// </summary>
@@ -580,7 +587,7 @@ public partial class RollbackDemo : Node2D
         }
 
         // ── Gameplay packets ──────────────────────────────────────────────────
-        // (populated in Task 3 — packets received before that task are silently ignored)
+        // Gameplay packets are decoded by ProcessGameplayPacket and fed to the engine.
         if (_lanState == LanState.Connected)
         {
             ProcessGameplayPacket(raw);
@@ -629,15 +636,14 @@ public partial class RollbackDemo : Node2D
     {
         if (_udpSocket is null || _remoteEp is null) return;
 
-        // lastFrame = the frame we just ticked (CurrentFrame is already +1)
-        uint lastFrame  = _engine.CurrentFrame == 0u ? 0u : _engine.CurrentFrame - 1u;
+        // lastFrame = the frame we just ticked; CurrentFrame >= 1 because Tick() was just called
+        uint lastFrame  = _engine.CurrentFrame - 1u;
         uint startFrame = lastFrame >= 7u ? lastFrame - 7u : 0u;
         byte count      = (byte)(lastFrame - startFrame + 1u); // 1..8
 
-        // Gather inputs from ring buffer
-        var inputs = new FrameInput[count];
+        // Gather inputs from ring buffer into pre-allocated scratch array
         for (int i = 0; i < count; i++)
-            inputs[i] = _localInputRing[(startFrame + i) & 255];
+            _inputsScratch[i] = _localInputRing[(startFrame + i) & 255];
 
         var header = new InputPacketHeader
         {
@@ -646,7 +652,7 @@ public partial class RollbackDemo : Node2D
             AckFrame   = _latestRemoteFrame == uint.MaxValue ? 0u : _latestRemoteFrame,
         };
 
-        var pkt     = new InputPacket(header, inputs, count);
+        var pkt     = new InputPacket(header, _inputsScratch, count);
         int written = PacketCodec.Encode(in pkt, _sendBuf.AsSpan());
         _udpSocket.Send(_sendBuf, written, _remoteEp!);
     }
