@@ -333,14 +333,17 @@ public partial class RollbackDemo : Node2D
             _localPlayer       = LocalPlayer.P1;
             _simulationRunning = true;
             // Reset engine and lag-simulation state so Offline starts cleanly.
-            _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap);
+            _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
             _lagBuffer.Clear();
             _latestRemoteFrame = uint.MaxValue;
+            _hostBtn.Disabled  = false;
+            _joinBtn.Disabled  = false;
         }
         else // Lan
         {
             _lanState          = LanState.Disconnected;
             _simulationRunning = false;
+            _lagBuffer.Clear(); // discard stale offline-lag-sim entries
             _lanStatusLbl.Text = "State: DISCONNECTED";
         }
 
@@ -361,7 +364,9 @@ public partial class RollbackDemo : Node2D
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
-        _lanStatusLbl.Text = "State: HOSTING  (waiting for peer)";
+        _lanStatusLbl.Text  = "State: HOSTING  (waiting for peer)";
+        _hostBtn.Disabled   = true;
+        _joinBtn.Disabled   = true;
         UpdateDebugLabel();
     }
 
@@ -377,7 +382,9 @@ public partial class RollbackDemo : Node2D
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
-        _lanStatusLbl.Text = "State: JOINING  (waiting for host)";
+        _lanStatusLbl.Text  = "State: JOINING  (waiting for host)";
+        _hostBtn.Disabled   = true;
+        _joinBtn.Disabled   = true;
         UpdateDebugLabel();
     }
 
@@ -387,9 +394,11 @@ public partial class RollbackDemo : Node2D
     /// </summary>
     private void OnDisconnect()
     {
-        _lanState          = LanState.Disconnected;
-        _simulationRunning = false;
-        _lanStatusLbl.Text = "State: DISCONNECTED";
+        _lanState           = LanState.Disconnected;
+        _simulationRunning  = false;
+        _lanStatusLbl.Text  = "State: DISCONNECTED";
+        _hostBtn.Disabled   = false;
+        _joinBtn.Disabled   = false;
         UpdateDebugLabel();
     }
 
