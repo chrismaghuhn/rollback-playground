@@ -18,6 +18,9 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../src/Core.Net/Core.Net.csproj" />
     <ProjectReference Include="../../src/Core.Sim/Core.Sim.csproj" />
   </ItemGroup>
