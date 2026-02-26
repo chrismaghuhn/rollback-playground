@@ -46,6 +46,7 @@ public sealed class RollbackEngine
     private readonly InputBuffer _localInputs;
     private readonly InputBuffer _remoteInputs;
     private readonly StateBuffer _stateBuffer;
+    private readonly LocalPlayer _localPlayer;
 
     // ── Public state and statistics ───────────────────────────────────────────
 
@@ -64,6 +65,9 @@ public sealed class RollbackEngine
     /// <summary>The deepest single rollback, measured in frames.</summary>
     public int MaxRollbackDepth    { get; private set; }
 
+    /// <summary>Which player this engine instance controls locally.</summary>
+    public LocalPlayer LocalPlayer { get; }
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     /// <summary>
@@ -81,13 +85,17 @@ public sealed class RollbackEngine
     /// <exception cref="ArgumentOutOfRangeException">
     /// Thrown when <paramref name="historyCapacity"/> is less than 2.
     /// </exception>
-    public RollbackEngine(SimState initialState, int historyCapacity)
+    public RollbackEngine(SimState initialState, int historyCapacity,
+                          LocalPlayer localPlayer = LocalPlayer.P1)
     {
         if (historyCapacity < 2)
             throw new ArgumentOutOfRangeException(
                 nameof(historyCapacity),
                 historyCapacity,
                 "historyCapacity must be >= 2.");
+
+        _localPlayer = localPlayer;
+        LocalPlayer  = localPlayer;
 
         CurrentState  = initialState;
         _localInputs  = new InputBuffer(historyCapacity);
