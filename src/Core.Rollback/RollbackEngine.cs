@@ -82,8 +82,15 @@ public sealed class RollbackEngine
     /// Must be ≥ 2.  Should be greater than the maximum expected remote-input
     /// lag in frames; e.g. 60 fps × 200 ms RTT = 12 frames of lag → use ≥ 32.
     /// </param>
+    /// <param name="localPlayer">
+    /// Which player this instance controls locally. Defaults to <see cref="LocalPlayer.P1"/>
+    /// for backward compatibility with existing callers. Pass <see cref="LocalPlayer.P2"/>
+    /// on the remote peer's machine.
+    /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown when <paramref name="historyCapacity"/> is less than 2.
+    /// Thrown when <paramref name="historyCapacity"/> is less than 2, or when
+    /// <paramref name="localPlayer"/> is not <see cref="LocalPlayer.P1"/> or
+    /// <see cref="LocalPlayer.P2"/>.
     /// </exception>
     public RollbackEngine(SimState initialState, int historyCapacity,
                           LocalPlayer localPlayer = LocalPlayer.P1)
@@ -93,6 +100,10 @@ public sealed class RollbackEngine
                 nameof(historyCapacity),
                 historyCapacity,
                 "historyCapacity must be >= 2.");
+
+        if (localPlayer != LocalPlayer.P1 && localPlayer != LocalPlayer.P2)
+            throw new ArgumentOutOfRangeException(
+                nameof(localPlayer), localPlayer, "LocalPlayer must be P1 or P2.");
 
         _localPlayer = localPlayer;
         LocalPlayer  = localPlayer;
@@ -107,8 +118,9 @@ public sealed class RollbackEngine
 
     /// <summary>
     /// Advances the simulation by one frame using <paramref name="localInput"/>
-    /// for P1.  P2's input is taken from the buffer (real if already delivered,
-    /// otherwise predicted via repeat-last-known).
+    /// for the local player (see <see cref="LocalPlayer"/>). The remote player's
+    /// input is taken from the buffer (real if already delivered, otherwise
+    /// predicted via repeat-last-known).
     ///
     /// The pre-step snapshot is archived so that a later call to
     /// <see cref="SetRemoteInput"/> can roll back to this frame.
@@ -135,7 +147,8 @@ public sealed class RollbackEngine
 
         // ── 4. Advance simulation ─────────────────────────────────────────
         SimState prev = CurrentState;
-        CurrentState = SimStep.Step(in prev, localInput, remoteInput);
+        MapInputs(localInput, remoteInput, out var p1, out var p2);
+        CurrentState = SimStep.Step(in prev, p1, p2);
     }
 
     /// <summary>
@@ -221,7 +234,21 @@ public sealed class RollbackEngine
             _stateBuffer.Save(f, CurrentState);
 
             SimState prevReplay = CurrentState;
-            CurrentState = SimStep.Step(in prevReplay, li, ri);
+            MapInputs(li, ri, out var p1r, out var p2r);
+            CurrentState = SimStep.Step(in prevReplay, p1r, p2r);
         }
+    }
+
+    /// <summary>
+    /// Maps local/remote inputs to the p1/p2 order expected by <see cref="SimStep.Step"/>.
+    /// When this instance is P1: p1 = localInput, p2 = remoteInput.
+    /// When this instance is P2: p1 = remoteInput, p2 = localInput.
+    /// </summary>
+    private void MapInputs(
+        FrameInput localInput,  FrameInput remoteInput,
+        out FrameInput p1,      out FrameInput p2)
+    {
+        if (_localPlayer == LocalPlayer.P1) { p1 = localInput;  p2 = remoteInput; }
+        else                                { p1 = remoteInput; p2 = localInput;  }
     }
 }
