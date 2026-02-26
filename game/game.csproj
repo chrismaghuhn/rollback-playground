@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="../src/Core.Sim/Core.Sim.csproj" />
     <ProjectReference Include="../src/Core.Rollback/Core.Rollback.csproj" />
+    <ProjectReference Include="../src/Core.Net/Core.Net.csproj" />
   </ItemGroup>
 </Project>

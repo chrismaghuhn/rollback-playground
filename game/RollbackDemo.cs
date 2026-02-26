@@ -1,4 +1,5 @@
 using Godot;
+using Core.Net;
 using Core.Sim;
 using Core.Rollback;
 using System.Collections.Generic;
@@ -81,6 +82,41 @@ public partial class RollbackDemo : Node2D
     /// The physics gate in _PhysicsProcess reads this flag.
     /// </summary>
     private bool        _simulationRunning = true;
+
+    // ─── LAN networking ───────────────────────────────────────────────────────
+
+    /// <summary>UDP socket; null when disconnected.</summary>
+    private System.Net.Sockets.UdpClient?  _udpSocket              = null;
+
+    /// <summary>Remote peer endpoint; set in OnHost/OnJoin.</summary>
+    private System.Net.IPEndPoint?         _remoteEp               = null;
+
+    /// <summary>Pre-allocated send buffer — avoids per-tick allocation.</summary>
+    private readonly byte[]                _sendBuf                = new byte[PacketCodec.MaxPacketSize];
+
+    /// <summary>
+    /// 256-slot ring buffer of local inputs indexed by <c>frame &amp; 255</c>.
+    /// Populated each tick before Tick(); used to build redundant outgoing packets.
+    /// </summary>
+    private readonly FrameInput[]          _localInputRing         = new FrameInput[256];
+
+    /// <summary>
+    /// Highest remote frame index confirmed received from the peer (AckFrame in
+    /// packets we receive). Stored so we can fill AckFrame in our outgoing packets.
+    /// uint.MaxValue = "never confirmed".
+    /// </summary>
+    private uint                           _latestRemoteFrameConfirmed = uint.MaxValue;
+
+    /// <summary>
+    /// Counts physics frames while in Joining state; drives the periodic HELLO timer.
+    /// Reset to 0 in OnJoin().
+    /// </summary>
+    private int                            _helloSendTimer         = 0;
+
+    // Pre-allocated ASCII handshake byte arrays — avoids per-tick Encoding.GetBytes.
+    private static readonly byte[] _helloBytes = System.Text.Encoding.ASCII.GetBytes("HELLO");
+    private static readonly byte[] _ackBytes   = System.Text.Encoding.ASCII.GetBytes("ACK");
+    private static readonly byte[] _startBytes = System.Text.Encoding.ASCII.GetBytes("START");
 
     public override void _Ready()
     {
@@ -329,10 +365,10 @@ public partial class RollbackDemo : Node2D
 
         if (newMode == DemoMode.Offline)
         {
+            CloseSocket();
             _lanState          = LanState.Disconnected;
             _localPlayer       = LocalPlayer.P1;
             _simulationRunning = true;
-            // Reset engine and lag-simulation state so Offline starts cleanly.
             _engine                = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
             _lagBuffer.Clear();
             _latestRemoteFrame     = uint.MaxValue;
@@ -360,12 +396,20 @@ public partial class RollbackDemo : Node2D
     /// </summary>
     private void OnHost()
     {
+        CloseSocket(); // defensive: close any leftover socket from a previous attempt
         _lanState          = LanState.Hosting;
         _localPlayer       = LocalPlayer.P1;
         _simulationRunning = false;
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
+
+        // Open socket — Host listens on _port; sends to remote at _port + 1
+        _udpSocket             = new System.Net.Sockets.UdpClient(_port);
+        _udpSocket.Client.Blocking = false;
+        _remoteEp              = new System.Net.IPEndPoint(
+                                     System.Net.IPAddress.Parse(_remoteIp), _port + 1);
+
         _lanStatusLbl.Text      = "State: HOSTING  (waiting for peer)";
         _hostBtn.Disabled       = true;
         _joinBtn.Disabled       = true;
@@ -379,12 +423,21 @@ public partial class RollbackDemo : Node2D
     /// </summary>
     private void OnJoin()
     {
+        CloseSocket(); // defensive
         _lanState          = LanState.Joining;
         _localPlayer       = LocalPlayer.P2;
         _simulationRunning = false;
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
+
+        // Open socket — Joiner listens on _port + 1; sends to host at _port
+        _udpSocket             = new System.Net.Sockets.UdpClient(_port + 1);
+        _udpSocket.Client.Blocking = false;
+        _remoteEp              = new System.Net.IPEndPoint(
+                                     System.Net.IPAddress.Parse(_remoteIp), _port);
+        _helloSendTimer        = 0;
+
         _lanStatusLbl.Text      = "State: JOINING  (waiting for host)";
         _hostBtn.Disabled       = true;
         _joinBtn.Disabled       = true;
@@ -398,6 +451,7 @@ public partial class RollbackDemo : Node2D
     /// </summary>
     private void OnDisconnect()
     {
+        CloseSocket();
         _lanState               = LanState.Disconnected;
         _simulationRunning      = false;
         _lanStatusLbl.Text      = "State: DISCONNECTED";
@@ -405,6 +459,19 @@ public partial class RollbackDemo : Node2D
         _joinBtn.Disabled       = false;
         _disconnectBtn.Disabled = true;
         UpdateDebugLabel();
+    }
+
+    /// <summary>
+    /// Closes and discards the UDP socket. Safe to call when socket is already null.
+    /// Resets per-session networking state.
+    /// </summary>
+    private void CloseSocket()
+    {
+        _udpSocket?.Close();
+        _udpSocket              = null;
+        _remoteEp               = null;
+        _helloSendTimer         = 0;
+        _latestRemoteFrameConfirmed = uint.MaxValue;
     }
 
     private void UpdateDebugLabel()
