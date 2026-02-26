@@ -45,6 +45,7 @@ public partial class RollbackDemo : Node2D
     // ─── Godot lifecycle ─────────────────────────────────────────────────────
 
     private RollbackEngine _engine    = null!;
+    private CanvasLayer    _hud       = null!;
     private Label          _debugLbl  = null!;
     private Label          _lagLbl    = null!;
 
@@ -89,6 +90,14 @@ public partial class RollbackDemo : Node2D
     // Safe only with Godot's single-threaded physics (the default).
     private int _delayFrames = 0;
 
+    // Highest simFrame for which a confirmed remote input has been delivered.
+    // uint.MaxValue = “never delivered” — same sentinel pattern as InputBuffer / StateBuffer.
+    private uint _latestRemoteFrame = uint.MaxValue;
+
+    // HUD visibility (F1 = debug label only; F2 = full HUD including slider).
+    private bool _overlayVisible = true;
+    private bool _hudVisible     = true;
+
     /// <summary>
     /// Deterministic 60-frame input cycle for P2.
     ///   Frames  0-29 → Right
@@ -117,6 +126,12 @@ public partial class RollbackDemo : Node2D
         {
             var (_, simFrame, input) = _lagBuffer.Dequeue();
             _engine.SetRemoteInput(simFrame, input);
+
+            // Use Math.Max to stay monotone even if queue order shifts after a
+            // live delay-slider change produces out-of-order deliveries.
+            _latestRemoteFrame = _latestRemoteFrame == uint.MaxValue
+                ? simFrame
+                : Math.Max(_latestRemoteFrame, simFrame);
         }
     }
 
@@ -160,14 +175,14 @@ public partial class RollbackDemo : Node2D
 
     private void BuildUi()
     {
-        var hud = new CanvasLayer();
-        AddChild(hud);
+        _hud = new CanvasLayer();
+        AddChild(_hud);
 
         // Debug label — top-left, fixed monospace readout
         _debugLbl = new Label();
         _debugLbl.Position = new Vector2(8f, 8f);
         _debugLbl.AddThemeFontSizeOverride("font_size", 14);
-        hud.AddChild(_debugLbl);
+        _hud.AddChild(_debugLbl);
         UpdateDebugLabel();
 
         // Lag slider row — top-right
@@ -194,16 +209,51 @@ public partial class RollbackDemo : Node2D
         row.AddChild(lagHeaderLbl);
         row.AddChild(slider);
         row.AddChild(_lagLbl);
-        hud.AddChild(row);
+        _hud.AddChild(row);
     }
 
     private void UpdateDebugLabel()
     {
+        // Determine PRED/CONF for the frame that was just simulated.
+        // Tick() has already incremented CurrentFrame, so the frame we care about
+        // is CurrentFrame - 1.  Making this explicit prevents off-by-one "fixes".
+        uint justSimulated = _engine.CurrentFrame == 0u ? 0u : _engine.CurrentFrame - 1u;
+        bool confirmedForJustSimulated =
+            _latestRemoteFrame != uint.MaxValue &&
+            _latestRemoteFrame >= justSimulated;
+
+        string remoteStatus    = _latestRemoteFrame == uint.MaxValue ? "N/A "
+                               : confirmedForJustSimulated            ? "CONF" : "PRED";
+        string latestRemoteTxt = _latestRemoteFrame == uint.MaxValue
+                               ? "    ---"
+                               : $"{_latestRemoteFrame,7}";
+
         _debugLbl.Text =
-            $"Frame:         {_engine.CurrentFrame,7}\n"       +
-            $"RollbackCount: {_engine.RollbackCount,7}\n"      +
+            $"Frame:          {_engine.CurrentFrame,7}\n"           +
+            $"LatestRemote:  {latestRemoteTxt}\n"                   +
+            $"Remote:        {remoteStatus,7}\n"                    +
+            $"RollbackCount: {_engine.RollbackCount,7}\n"           +
             $"MaxRollback:   {_engine.MaxRollbackDepth,7} frames\n" +
-            $"FramesRolled:  {_engine.RollbackFramesTotal,7}\n" +
+            $"FramesRolled:  {_engine.RollbackFramesTotal,7}\n"     +
             $"DelayFrames:   {_delayFrames,7}";
+    }
+
+    // ─── Hotkeys ──────────────────────────────────────────────────
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey { Pressed: true, Echo: false } key)
+            return;
+
+        if (key.Keycode == Key.F1)
+        {
+            _overlayVisible   = !_overlayVisible;
+            _debugLbl.Visible = _overlayVisible;
+        }
+        else if (key.Keycode == Key.F2)
+        {
+            _hudVisible  = !_hudVisible;
+            _hud.Visible = _hudVisible;
+        }
     }
 }
