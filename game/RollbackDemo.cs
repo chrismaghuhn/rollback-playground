@@ -560,14 +560,14 @@ public partial class RollbackDemo : Node2D
         // Host receives HELLO from Joiner → reply ACK
         if (_lanState == LanState.Hosting && IsMessage(raw, "HELLO"u8))
         {
-            _udpSocket!.Send(_ackBytes, _ackBytes.Length, _remoteEp);
+            _udpSocket!.Send(_ackBytes, _ackBytes.Length, _remoteEp!);
             return;
         }
 
         // Joiner receives ACK from Host → reply START + go Connected
         if (_lanState == LanState.Joining && IsMessage(raw, "ACK"u8))
         {
-            _udpSocket!.Send(_startBytes, _startBytes.Length, _remoteEp);
+            _udpSocket!.Send(_startBytes, _startBytes.Length, _remoteEp!);
             TransitionToConnected();
             return;
         }
@@ -594,8 +594,8 @@ public partial class RollbackDemo : Node2D
     private void ProcessGameplayPacket(byte[] raw)
     {
         // Zero-alloc decode into stack-allocated span
-        var dst = new FrameInput[PacketCodec.MaxInputsPerPacket];
-        if (!PacketCodec.TryDecodeInto(raw.AsSpan(), dst.AsSpan(), out var header, out int count))
+        Span<FrameInput> dst = stackalloc FrameInput[PacketCodec.MaxInputsPerPacket];
+        if (!PacketCodec.TryDecodeInto(raw.AsSpan(), dst, out var header, out int count))
             return; // malformed — drop
 
         for (int i = 0; i < count; i++)
