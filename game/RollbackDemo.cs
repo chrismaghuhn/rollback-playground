@@ -57,6 +57,17 @@ public partial class RollbackDemo : Node2D
     private Label          _debugLbl  = null!;
     private Label          _lagLbl    = null!;
 
+    // ─── LAN UI controls ──────────────────────────────────────────────────────
+
+    private HBoxContainer _lagRow        = null!;   // reference so we can toggle visibility
+    private VBoxContainer _lanPanel      = null!;
+    private Label         _lanStatusLbl  = null!;
+    private Button        _hostBtn       = null!;
+    private Button        _joinBtn       = null!;
+    private Button        _disconnectBtn = null!;
+    private LineEdit      _ipField       = null!;
+    private SpinBox       _portSpinBox   = null!;
+
     // ─── Mode + LAN connection state ─────────────────────────────────────────
 
     private DemoMode    _mode              = DemoMode.Offline;
@@ -216,9 +227,11 @@ public partial class RollbackDemo : Node2D
         _hud.AddChild(_debugLbl);
         UpdateDebugLabel();
 
-        // Lag slider row — top-right
-        _lagLbl = new Label();
-        _lagLbl.Text = "0 frames";
+        // Mode switch — top-center (Offline | LAN)
+        BuildModeSwitch();
+
+        // Lag slider row — top-right, visible in Offline mode only
+        _lagLbl = new Label { Text = "0 frames" };
 
         var slider = new HSlider();
         slider.MinValue          = 0;
@@ -228,19 +241,156 @@ public partial class RollbackDemo : Node2D
         slider.CustomMinimumSize = new Vector2(160f, 20f);
         slider.ValueChanged     += v =>
         {
-            _delayFrames   = (int)v;
-            _lagLbl.Text   = $"{(int)v} frames";
+            _delayFrames = (int)v;
+            _lagLbl.Text = $"{(int)v} frames";
         };
 
-        var lagHeaderLbl = new Label();
-        lagHeaderLbl.Text = "Lag: ";
+        var lagHeaderLbl = new Label { Text = "Lag: " };
+
+        _lagRow = new HBoxContainer();
+        _lagRow.Position = new Vector2(ViewportW - 280f, 8f);
+        _lagRow.AddChild(lagHeaderLbl);
+        _lagRow.AddChild(slider);
+        _lagRow.AddChild(_lagLbl);
+        _hud.AddChild(_lagRow);
+
+        // LAN panel — top-right, visible in LAN mode only (hidden initially)
+        BuildLanPanel();
+    }
+
+    private void BuildModeSwitch()
+    {
+        var offlineBtn = new Button { Text = "Offline" };
+        var lanBtn     = new Button { Text = "LAN" };
+
+        offlineBtn.Pressed += () => SwitchMode(DemoMode.Offline);
+        lanBtn.Pressed     += () => SwitchMode(DemoMode.Lan);
 
         var row = new HBoxContainer();
-        row.Position = new Vector2(ViewportW - 280f, 8f);
-        row.AddChild(lagHeaderLbl);
-        row.AddChild(slider);
-        row.AddChild(_lagLbl);
+        row.Position = new Vector2(ViewportW / 2f - 50f, 8f);
+        row.AddChild(offlineBtn);
+        row.AddChild(lanBtn);
         _hud.AddChild(row);
+    }
+
+    private void BuildLanPanel()
+    {
+        _lanPanel = new VBoxContainer();
+        _lanPanel.Position = new Vector2(ViewportW - 320f, 8f);
+        _lanPanel.Visible  = false; // hidden until LAN mode is active
+        _hud.AddChild(_lanPanel);
+
+        // Status label — shows DISCONNECTED / HOSTING / JOINING / CONNECTED
+        _lanStatusLbl = new Label { Text = "State: DISCONNECTED" };
+        _lanPanel.AddChild(_lanStatusLbl);
+
+        // Address row: IP + Port
+        _ipField = new LineEdit { Text = _remoteIp, CustomMinimumSize = new Vector2(120f, 0f) };
+        _ipField.TextChanged += t => _remoteIp = t;
+
+        _portSpinBox = new SpinBox();
+        _portSpinBox.MinValue          = 1;
+        _portSpinBox.MaxValue          = 65535;
+        _portSpinBox.Value             = _port;
+        _portSpinBox.CustomMinimumSize = new Vector2(80f, 0f);
+        _portSpinBox.ValueChanged     += v => _port = (int)v;
+
+        var addrRow = new HBoxContainer();
+        addrRow.AddChild(new Label { Text = "IP " });
+        addrRow.AddChild(_ipField);
+        addrRow.AddChild(new Label { Text = " Port " });
+        addrRow.AddChild(_portSpinBox);
+        _lanPanel.AddChild(addrRow);
+
+        // Action buttons
+        _hostBtn       = new Button { Text = "Host" };
+        _joinBtn       = new Button { Text = "Join" };
+        _disconnectBtn = new Button { Text = "Disconnect" };
+
+        _hostBtn.Pressed       += OnHost;
+        _joinBtn.Pressed       += OnJoin;
+        _disconnectBtn.Pressed += OnDisconnect;
+
+        var btnRow = new HBoxContainer();
+        btnRow.AddChild(_hostBtn);
+        btnRow.AddChild(_joinBtn);
+        btnRow.AddChild(_disconnectBtn);
+        _lanPanel.AddChild(btnRow);
+    }
+
+    /// <summary>
+    /// Switches the top-level demo mode. Offline: shows lag slider, resets engine to P1.
+    /// LAN: hides lag slider, shows LAN panel in Disconnected state.
+    /// </summary>
+    private void SwitchMode(DemoMode newMode)
+    {
+        if (_mode == newMode) return;
+        _mode = newMode;
+
+        if (newMode == DemoMode.Offline)
+        {
+            _lanState          = LanState.Disconnected;
+            _localPlayer       = LocalPlayer.P1;
+            _simulationRunning = true;
+            // Reset engine and lag-simulation state so Offline starts cleanly.
+            _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap);
+            _lagBuffer.Clear();
+            _latestRemoteFrame = uint.MaxValue;
+        }
+        else // Lan
+        {
+            _lanState          = LanState.Disconnected;
+            _simulationRunning = false;
+            _lanStatusLbl.Text = "State: DISCONNECTED";
+        }
+
+        _lagRow.Visible   = (newMode == DemoMode.Offline);
+        _lanPanel.Visible = (newMode == DemoMode.Lan);
+        UpdateDebugLabel();
+    }
+
+    /// <summary>
+    /// Host button: become P1, enter Hosting state, freeze simulation until peer connects.
+    /// Re-creates the engine so both sides start from the same initial state.
+    /// </summary>
+    private void OnHost()
+    {
+        _lanState          = LanState.Hosting;
+        _localPlayer       = LocalPlayer.P1;
+        _simulationRunning = false;
+        _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
+        _lagBuffer.Clear();
+        _latestRemoteFrame = uint.MaxValue;
+        _lanStatusLbl.Text = "State: HOSTING  (waiting for peer)";
+        UpdateDebugLabel();
+    }
+
+    /// <summary>
+    /// Join button: become P2, enter Joining state, freeze simulation until host connects.
+    /// Re-creates the engine so both sides start from the same initial state.
+    /// </summary>
+    private void OnJoin()
+    {
+        _lanState          = LanState.Joining;
+        _localPlayer       = LocalPlayer.P2;
+        _simulationRunning = false;
+        _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
+        _lagBuffer.Clear();
+        _latestRemoteFrame = uint.MaxValue;
+        _lanStatusLbl.Text = "State: JOINING  (waiting for host)";
+        UpdateDebugLabel();
+    }
+
+    /// <summary>
+    /// Disconnect button: return to Disconnected sub-state.
+    /// Freezes the simulation at its current frame (does not reset engine).
+    /// </summary>
+    private void OnDisconnect()
+    {
+        _lanState          = LanState.Disconnected;
+        _simulationRunning = false;
+        _lanStatusLbl.Text = "State: DISCONNECTED";
+        UpdateDebugLabel();
     }
 
     private void UpdateDebugLabel()
