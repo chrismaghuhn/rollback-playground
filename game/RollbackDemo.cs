@@ -302,10 +302,10 @@ public partial class RollbackDemo : Node2D
         addrRow.AddChild(_portSpinBox);
         _lanPanel.AddChild(addrRow);
 
-        // Action buttons
+        // Action buttons — Disconnect starts disabled (nothing to disconnect from yet)
         _hostBtn       = new Button { Text = "Host" };
         _joinBtn       = new Button { Text = "Join" };
-        _disconnectBtn = new Button { Text = "Disconnect" };
+        _disconnectBtn = new Button { Text = "Disconnect", Disabled = true };
 
         _hostBtn.Pressed       += OnHost;
         _joinBtn.Pressed       += OnJoin;
@@ -333,18 +333,20 @@ public partial class RollbackDemo : Node2D
             _localPlayer       = LocalPlayer.P1;
             _simulationRunning = true;
             // Reset engine and lag-simulation state so Offline starts cleanly.
-            _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
+            _engine                = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
             _lagBuffer.Clear();
-            _latestRemoteFrame = uint.MaxValue;
-            _hostBtn.Disabled  = false;
-            _joinBtn.Disabled  = false;
+            _latestRemoteFrame     = uint.MaxValue;
+            _hostBtn.Disabled      = false;
+            _joinBtn.Disabled      = false;
+            _disconnectBtn.Disabled = true;
         }
         else // Lan
         {
-            _lanState          = LanState.Disconnected;
-            _simulationRunning = false;
+            _lanState              = LanState.Disconnected;
+            _simulationRunning     = false;
             _lagBuffer.Clear(); // discard stale offline-lag-sim entries
-            _lanStatusLbl.Text = "State: DISCONNECTED";
+            _latestRemoteFrame     = uint.MaxValue;
+            _lanStatusLbl.Text     = "State: DISCONNECTED";
         }
 
         _lagRow.Visible   = (newMode == DemoMode.Offline);
@@ -364,9 +366,10 @@ public partial class RollbackDemo : Node2D
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
-        _lanStatusLbl.Text  = "State: HOSTING  (waiting for peer)";
-        _hostBtn.Disabled   = true;
-        _joinBtn.Disabled   = true;
+        _lanStatusLbl.Text      = "State: HOSTING  (waiting for peer)";
+        _hostBtn.Disabled       = true;
+        _joinBtn.Disabled       = true;
+        _disconnectBtn.Disabled = false;
         UpdateDebugLabel();
     }
 
@@ -382,9 +385,10 @@ public partial class RollbackDemo : Node2D
         _engine            = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
         _lagBuffer.Clear();
         _latestRemoteFrame = uint.MaxValue;
-        _lanStatusLbl.Text  = "State: JOINING  (waiting for host)";
-        _hostBtn.Disabled   = true;
-        _joinBtn.Disabled   = true;
+        _lanStatusLbl.Text      = "State: JOINING  (waiting for host)";
+        _hostBtn.Disabled       = true;
+        _joinBtn.Disabled       = true;
+        _disconnectBtn.Disabled = false;
         UpdateDebugLabel();
     }
 
@@ -394,11 +398,12 @@ public partial class RollbackDemo : Node2D
     /// </summary>
     private void OnDisconnect()
     {
-        _lanState           = LanState.Disconnected;
-        _simulationRunning  = false;
-        _lanStatusLbl.Text  = "State: DISCONNECTED";
-        _hostBtn.Disabled   = false;
-        _joinBtn.Disabled   = false;
+        _lanState               = LanState.Disconnected;
+        _simulationRunning      = false;
+        _lanStatusLbl.Text      = "State: DISCONNECTED";
+        _hostBtn.Disabled       = false;
+        _joinBtn.Disabled       = false;
+        _disconnectBtn.Disabled = true;
         UpdateDebugLabel();
     }
 
