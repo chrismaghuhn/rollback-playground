@@ -128,5 +128,7 @@ public class RollbackEngineLocalPlayerTests
         AssertStatesMatch(gt, engine.CurrentState);
         Assert.True(engine.RollbackCount > 0,
             $"Expected at least one rollback but RollbackCount={engine.RollbackCount}");
+        Assert.True(engine.MaxRollbackDepth <= 64,
+            $"MaxRollbackDepth={engine.MaxRollbackDepth} exceeded sanity bound of 64");
     }
 }
