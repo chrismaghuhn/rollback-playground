@@ -245,6 +245,9 @@ public partial class RollbackDemo : Node2D
 
     private void UpdateDebugLabel()
     {
+        // Determine PRED/CONF for the frame that was just simulated.
+        // Tick() has already incremented CurrentFrame, so the frame we care about
+        // is CurrentFrame - 1.  Making this explicit prevents off-by-one "fixes".
         uint justSimulated = _engine.CurrentFrame == 0u ? 0u : _engine.CurrentFrame - 1u;
         bool confirmedForJustSimulated =
             _latestRemoteFrame != uint.MaxValue &&
