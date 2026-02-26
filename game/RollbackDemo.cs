@@ -154,11 +154,11 @@ public partial class RollbackDemo : Node2D
 
         if (_mode == DemoMode.Lan)
         {
-            // LAN Connected path — Task 3 will complete this branch
-            FrameInput localInput = ReadP1Input(); // same keys for P1 or P2 role
+            // LAN Connected path: keyboard → engine → network
+            FrameInput localInput    = ReadP1Input(); // same keys for P1 or P2 role
             _localInputRing[f & 255] = localInput;
             _engine.Tick(localInput);
-            // SendInputPacket() — added in Task 3
+            SendInputPacket();
         }
         else
         {
@@ -611,6 +611,44 @@ public partial class RollbackDemo : Node2D
         _latestRemoteFrameConfirmed = _latestRemoteFrameConfirmed == uint.MaxValue
             ? header.AckFrame
             : Math.Max(_latestRemoteFrameConfirmed, header.AckFrame);
+    }
+
+    /// <summary>
+    /// Encodes and sends the current frame's local input, plus up to 7 preceding
+    /// inputs (redundant retransmit), as one RBN1 packet to the remote peer.
+    ///
+    /// Called after <see cref="RollbackEngine.Tick"/> so <c>CurrentFrame</c> has
+    /// already advanced; the just-ticked frame is <c>CurrentFrame - 1</c>.
+    ///
+    /// Packet layout:
+    ///   StartFrame = currentFrame - min(7, currentFrame)
+    ///   Count      = min(8, currentFrame + 1)   [1 .. 8]
+    ///   AckFrame   = _latestRemoteFrame (highest frame received from peer so far)
+    /// </summary>
+    private void SendInputPacket()
+    {
+        if (_udpSocket is null || _remoteEp is null) return;
+
+        // lastFrame = the frame we just ticked (CurrentFrame is already +1)
+        uint lastFrame  = _engine.CurrentFrame == 0u ? 0u : _engine.CurrentFrame - 1u;
+        uint startFrame = lastFrame >= 7u ? lastFrame - 7u : 0u;
+        byte count      = (byte)(lastFrame - startFrame + 1u); // 1..8
+
+        // Gather inputs from ring buffer
+        var inputs = new FrameInput[count];
+        for (int i = 0; i < count; i++)
+            inputs[i] = _localInputRing[(startFrame + i) & 255];
+
+        var header = new InputPacketHeader
+        {
+            StartFrame = startFrame,
+            // AckFrame: tell remote the highest frame we have received from them
+            AckFrame   = _latestRemoteFrame == uint.MaxValue ? 0u : _latestRemoteFrame,
+        };
+
+        var pkt     = new InputPacket(header, inputs, count);
+        int written = PacketCodec.Encode(in pkt, _sendBuf.AsSpan());
+        _udpSocket.Send(_sendBuf, written, _remoteEp!);
     }
 
     private void UpdateDebugLabel()
