@@ -369,6 +369,7 @@ public partial class RollbackDemo : Node2D
             _lanState          = LanState.Disconnected;
             _localPlayer       = LocalPlayer.P1;
             _simulationRunning = true;
+            // Reset engine and lag-simulation state so Offline starts cleanly.
             _engine                = new RollbackEngine(SimState.CreateInitial(Seed), HistoryCap, _localPlayer);
             _lagBuffer.Clear();
             _latestRemoteFrame     = uint.MaxValue;
@@ -460,6 +461,8 @@ public partial class RollbackDemo : Node2D
         _disconnectBtn.Disabled = true;
         UpdateDebugLabel();
     }
+
+    // ─── Networking helpers ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Closes and discards the UDP socket. Safe to call when socket is already null.
